@@ -1,0 +1,44 @@
+name: Publish Docker image on Publish Release on Github
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write # Needed to push to Docker Hub/GHCR
+
+jobs:
+  push_to_registry:
+    name: Build and push Docker image to Docker Hub
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+        with:
+          submodules: 'true' # Checkout submodules for build
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }} # Use DOCKER_USERNAME secret
+          password: ${{ secrets.DOCKER_PASSWORD }}    # Use DOCKER_PASSWORD secret
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: imazen/jpegli-tools # Set image name
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

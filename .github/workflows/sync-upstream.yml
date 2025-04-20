@@ -1,0 +1,34 @@
+name: Sync Upstream Repository
+
+on:
+  workflow_dispatch: # Allow manual trigger
+  schedule:
+    # Run daily at midnight UTC
+    - cron: '0 0 * * *'
+
+permissions:
+  contents: write # Needed to push the merge commit to main
+
+jobs:
+  sync_upstream:
+    name: Sync main with google/jpegli
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout is needed for the action to access the token
+      # and potentially local git config if needed.
+      - name: Checkout the repo
+        uses: actions/checkout@v4
+
+      - name: Sync and merge upstream repository
+        uses: dabreadman/sync-upstream-repo@v1.3.0
+        with:
+          # URL to the upstream repository
+          upstream_repo: "https://github.com/google/jpegli.git"
+          # Branch to sync from in the upstream repository
+          upstream_branch: "main"
+          # Branch to merge into in this repository (the downstream)
+          downstream_branch: "main"
+          # Use GITHUB_TOKEN for authentication
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: Set to true to keep the action runner alive longer
+          # spawn_logs: "false" 
