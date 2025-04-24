@@ -38,6 +38,10 @@ RUN rm -rf build && \
 ARG FINAL_BASE=debian:bookworm-slim
 FROM debian:bookworm-slim
 
+# Add non-root user and group
+RUN groupadd --system --gid 1001 app && \
+    useradd --system --uid 1001 --gid app --home-dir /work --no-create-home app
+
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libbrotli1 \
@@ -47,13 +51,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /src/build/tools/cjpegli /usr/local/bin/
 COPY --from=builder /src/build/tools/djpegli /usr/local/bin/
 COPY --from=builder /src/build/lib/libjxl_cms.so.0.12 /usr/local/lib/
+RUN mkdir -p /usr/local/share/doc/jpegli
+COPY docker/README.md /usr/local/share/doc/jpegli/README.md
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-# Ensure the linker finds the copied library
-RUN ldconfig
+# Ensure the linker finds the copied library and make entrypoint executable
+RUN ldconfig && chmod +x /usr/local/bin/entrypoint.sh
 
-# Verify the tools are runnable
+# Verify the tools are runnable (optional but good practice)
 RUN cjpegli -h
 RUN djpegli -h
 
-# Set default command (optional, can be removed if users should always specify)
-# CMD ["--help"] 
+# Set working directory
+WORKDIR /work
+RUN chown app:app /work
+
+# Switch to non-root user
+USER app
+
+# Set entrypoint and default command
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["--help"] # Default action: show cjpegli help 
