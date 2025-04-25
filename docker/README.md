@@ -51,6 +51,7 @@ To run other commands (like getting a shell), specify the command:
 
 
 ## Command line usage
+```
 Usage: cjpegli INPUT OUTPUT [OPTIONS...]
  INPUT
     the input can be JXL, PPM, PNM, PFM, PAM, PGX, PNG, APNG, GIF, JPEG, EXR
@@ -97,8 +98,8 @@ Usage: cjpegli INPUT OUTPUT [OPTIONS...]
 
  -h, --help
     Prints this help message. All options are shown above.
-
-
+```
+```
 Usage: djpegli INPUT OUTPUT [OPTIONS...]
  INPUT
     The JPEG input file.
@@ -115,3 +116,4 @@ Usage: djpegli INPUT OUTPUT [OPTIONS...]
 
  -h, --help
     Prints this help message. All options are shown above.
+```
