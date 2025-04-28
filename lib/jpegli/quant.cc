@@ -10,11 +10,14 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
+#include <sstream>
 
 #include "lib/jpegli/common.h"
 #include "lib/jpegli/common_internal.h"
 #include "lib/jpegli/encode_internal.h"
 #include "lib/jpegli/error.h"
+#include "lib/jpegli/test_data_gen.h"
 
 namespace jpegli {
 
@@ -633,6 +636,26 @@ bool IsYUV420(j_compress_ptr cinfo) {
 
 void SetQuantMatrices(j_compress_ptr cinfo, float distances[NUM_QUANT_TBLS],
                       bool add_two_chroma_tables) {
+
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    // Capture input state before modifications
+    std::vector<float> input_distances_vec(distances, distances + NUM_QUANT_TBLS);
+    bool input_force_baseline = cinfo->master->force_baseline;
+    bool input_use_std_tables = cinfo->master->use_std_tables;
+    bool input_xyb_mode = cinfo->master->xyb_mode;
+    int input_jpeg_color_space = cinfo->jpeg_color_space;
+    int input_cicp_transfer_function = cinfo->master->cicp_transfer_function;
+    // Create a copy of relevant component info
+    // Note: This assumes cinfo->comp_info is allocated and num_components is set.
+    // Might need to add checks or capture this earlier if SetQuantMatrices can be
+    // called before component info is fully initialized in some edge cases.
+    std::vector<jpeg_component_info> input_components_copy;
+    if (cinfo->comp_info) {
+       input_components_copy.assign(cinfo->comp_info, cinfo->comp_info + cinfo->num_components);
+    }
+
+#endif // ENABLE_RUST_TEST_INSTRUMENTATION
+
   jpeg_comp_master* m = cinfo->master;
   const bool xyb = m->xyb_mode && cinfo->jpeg_color_space == JCS_RGB;
   const bool is_yuv420 = IsYUV420(cinfo);
@@ -702,9 +725,51 @@ void SetQuantMatrices(j_compress_ptr cinfo, float distances[NUM_QUANT_TBLS],
     }
     (*qtable)->sent_table = FALSE;
   }
+
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    if (IsRustTestDataEnabled()) {
+        std::stringstream ss;
+        ss << "{";
+        ss << "\"test_type\": \"SetQuantMatricesTest\", ";
+        // Config fields (captured before function potentially modified them)
+        ss << "\"config_force_baseline\": " << format_json_bool(input_force_baseline) << ", ";
+        ss << "\"config_use_std_tables\": " << format_json_bool(input_use_std_tables) << ", ";
+        ss << "\"config_xyb_mode\": " << format_json_bool(input_xyb_mode) << ", ";
+        ss << "\"config_jpeg_color_space\": " << input_jpeg_color_space << ", ";
+        ss << "\"config_cicp_transfer_function\": " << input_cicp_transfer_function << ", ";
+        ss << "\"config_components\": " << format_json_component_info_vector(input_components_copy.data(), input_components_copy.size()) << ", ";
+        // Input args
+        ss << "\"input_distances\": [" << format_json_float(input_distances_vec[0]);
+        for (size_t i = 1; i < NUM_QUANT_TBLS; ++i) ss << "," << format_json_float(input_distances_vec[i]);
+        ss << "], ";
+        // Expected output state
+        ss << "\"expected_quant_tables\": " << format_json_quant_tables(cinfo->quant_tbl_ptrs, NUM_QUANT_TBLS);
+        ss << "}";
+        WriteTestDataJsonLine("SetQuantMatrices", ss);
+    }
+#endif // ENABLE_RUST_TEST_INSTRUMENTATION
+
 }
 
 void InitQuantizer(j_compress_ptr cinfo, QuantPass pass) {
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    // Capture relevant input state
+    bool input_use_adaptive_quantization = cinfo->master->use_adaptive_quantization;
+    int input_jpeg_color_space = cinfo->jpeg_color_space;
+    bool input_force_baseline = cinfo->master->force_baseline;
+    int input_cicp_transfer_function = cinfo->master->cicp_transfer_function;
+    std::vector<uint16_t> qtables_flat[NUM_QUANT_TBLS];
+    std::vector<jpeg_component_info> input_components_copy;
+    if (cinfo->comp_info) {
+       input_components_copy.assign(cinfo->comp_info, cinfo->comp_info + cinfo->num_components);
+    }
+    for (int i = 0; i < NUM_QUANT_TBLS; ++i) {
+        if (cinfo->quant_tbl_ptrs[i]) {
+            qtables_flat[i].assign(cinfo->quant_tbl_ptrs[i]->quantval, cinfo->quant_tbl_ptrs[i]->quantval + DCTSIZE2);
+        }
+    }
+#endif // ENABLE_RUST_TEST_INSTRUMENTATION
+
   jpeg_comp_master* m = cinfo->master;
   // Compute quantization multupliers from the quant table values.
   for (int c = 0; c < cinfo->num_components; ++c) {
@@ -764,6 +829,52 @@ void InitQuantizer(j_compress_ptr cinfo, QuantPass pass) {
       }
     }
   }
+
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    if (IsRustTestDataEnabled()) {
+        std::stringstream ss;
+        ss << "{";
+        ss << "\"test_type\": \"InitQuantizerTest\", ";
+        // Config fields
+        ss << "\"config_use_adaptive_quantization\": " << format_json_bool(input_use_adaptive_quantization) << ", ";
+        ss << "\"config_jpeg_color_space\": " << input_jpeg_color_space << ", ";
+        ss << "\"config_quant_tables\": ["; // Format the captured Option<Vec<u16>> like structure
+        for (int i = 0; i < NUM_QUANT_TBLS; ++i) {
+            if (i > 0) ss << ",";
+            if (qtables_flat[i].empty()) {
+                ss << "null";
+            } else {
+                ss << "[";
+                for (size_t k = 0; k < qtables_flat[i].size(); ++k) {
+                    if (k > 0) ss << ",";
+                    ss << qtables_flat[i][k];
+                }
+                 ss << "]";
+            }
+        }
+        ss << "], ";
+        ss << "\"config_components\": " << format_json_component_info_vector(input_components_copy.data(), input_components_copy.size()) << ", ";
+        ss << "\"config_force_baseline\": " << format_json_bool(input_force_baseline) << ", ";
+        ss << "\"config_cicp_transfer_function\": " << input_cicp_transfer_function << ", ";
+        // Input args
+        ss << "\"input_pass\": " << pass << ", ";
+        // Expected output state
+        // Need to convert C arrays to std::vector<std::vector<float>> for helper
+        std::vector<std::vector<float>> quant_mul_vec(cinfo->num_components, std::vector<float>(DCTSIZE2));
+        std::vector<std::vector<float>> zb_mul_vec(cinfo->num_components, std::vector<float>(DCTSIZE2));
+        std::vector<std::vector<float>> zb_offset_vec(cinfo->num_components, std::vector<float>(DCTSIZE2));
+        for (int c = 0; c < cinfo->num_components; ++c) {
+            quant_mul_vec[c].assign(m->quant_mul[c], m->quant_mul[c] + DCTSIZE2);
+            zb_mul_vec[c].assign(m->zero_bias_mul[c], m->zero_bias_mul[c] + DCTSIZE2);
+            zb_offset_vec[c].assign(m->zero_bias_offset[c], m->zero_bias_offset[c] + DCTSIZE2);
+        }
+        ss << "\"expected_quant_mul\": " << format_json_2d_float_vec(quant_mul_vec) << ", ";
+        ss << "\"expected_zero_bias_mul\": " << format_json_2d_float_vec(zb_mul_vec) << ", ";
+        ss << "\"expected_zero_bias_offset\": " << format_json_2d_float_vec(zb_offset_vec);
+        ss << "}";
+        WriteTestDataJsonLine("InitQuantizer", ss);
+    }
+#endif // ENABLE_RUST_TEST_INSTRUMENTATION
 }
 
 }  // namespace jpegli

@@ -31,6 +31,7 @@
 #include "lib/jpegli/quant.h"
 #include "lib/jpegli/simd.h"
 #include "lib/jpegli/types.h"
+#include "lib/jpegli/test_data_gen.h"
 
 namespace jpegli {
 
@@ -571,7 +572,21 @@ void PadInputBuffer(j_compress_ptr cinfo, float* row[kMaxComponents]) {
   jpeg_comp_master* m = cinfo->master;
   const size_t len0 = cinfo->image_width;
   const size_t len1 = m->xsize_blocks * DCTSIZE;
+
+  // Get row index just processed (m->next_input_row was incremented before this call)
+  size_t current_row_idx = m->next_input_row - 1;
+  bool is_last_row = (current_row_idx == cinfo->image_height - 1);
+
   for (int c = 0; c < cinfo->num_components; ++c) {
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    RustRowBufferSliceF32_Data slice_before;
+    // Only capture if runtime check enabled to avoid overhead
+    if (IsRustTestDataEnabled()) {
+      // Capture row c, index current_row_idx, including borders (-1 to len1+1)
+      slice_before = CaptureRowBufferSlice(m->input_buffer[c], c, current_row_idx, 1, -1, len1);
+    }
+#endif // ENABLE_RUST_TEST_INSTRUMENTATION
+
     // Pad row to a multiple of the iMCU width, plus create a border of 1
     // repeated pixel for adaptive quant field calculation.
     float last_val = row[c][len0 - 1];
@@ -579,13 +594,44 @@ void PadInputBuffer(j_compress_ptr cinfo, float* row[kMaxComponents]) {
       row[c][x] = last_val;
     }
     row[c][-1] = row[c][0];
+
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    if (IsRustTestDataEnabled()) {
+        // Capture row c after horizontal padding
+        RustRowBufferSliceF32_Data slice_after = CaptureRowBufferSlice(m->input_buffer[c], c, current_row_idx, 1, -1, len1);
+
+        // We don't capture vertical padding here, do it after the loop if needed
+
+        std::stringstream ss;
+        ss << "{";
+        ss << "\"test_type\": \"PadInputBufferTest\", ";
+        // Config
+        ss << "\"config_image_width\": " << len0 << ", ";
+        ss << "\"config_image_height\": " << cinfo->image_height << ", "; // Need total height context
+        ss << "\"config_buffer_xsize\": " << len1 << ", ";
+        ss << "\"config_buffer_ysize\": " << m->ysize_blocks * DCTSIZE << ", "; // Need total height context
+        // Input state
+        ss << "\"input_component_index\": " << c << ", ";
+        ss << "\"input_row_index\": " << (ssize_t)current_row_idx << ", ";
+        ss << "\"input_border\": " << 1 << ", "; // Assuming border=1
+        ss << "\"input_row_slice_before\": " << format_json_rowbufferslice(slice_before) << ", "; // Format the slice data
+        // Expected output state
+        ss << "\"expected_row_slice_after\": " << format_json_rowbufferslice(slice_after) << ", ";
+        ss << "\"expected_vertically_padded_rows\": null"; // Not capturing vertical here
+        ss << "}";
+        WriteTestDataJsonLine("PadInputBuffer", ss);
+    }
+#endif // ENABLE_RUST_TEST_INSTRUMENTATION
+
   }
   if (m->next_input_row == cinfo->image_height) {
     size_t num_rows = m->ysize_blocks * DCTSIZE - cinfo->image_height;
     for (size_t i = 0; i < num_rows; ++i) {
       for (int c = 0; c < cinfo->num_components; ++c) {
-        float* dest = m->input_buffer[c].Row(m->next_input_row) - 1;
-        memcpy(dest, row[c] - 1, (len1 + 2) * sizeof(dest[0]));
+         // TODO: Instrument vertical padding if necessary - complex to capture cleanly.
+         // Could capture the entire buffer slice for rows > image_height after this loop.
+         float* dest = m->input_buffer[c].Row(m->next_input_row) - 1;
+         memcpy(dest, row[c] - 1, (len1 + 2) * sizeof(dest[0]));
       }
       ++m->next_input_row;
     }

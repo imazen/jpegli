@@ -4,7 +4,11 @@
 // license that can be found in the LICENSE file or at
 // https://developers.google.com/open-source/licenses/bsd
 
+#include <vector>
+#include <sstream>
+
 #include "lib/jpegli/color_transform.h"
+#include "lib/jpegli/test_data_gen.h"
 
 #include <cstddef>
 #include <cstring>

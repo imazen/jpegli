@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ninja-build \
     pkg-config \
     libbrotli-dev \
+    libpng-dev \
+    # Add other -dev packages if needed for other formats later (libjpeg-dev, etc)
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the source code into the container
@@ -45,6 +47,8 @@ RUN groupadd --system --gid 1001 app && \
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libbrotli1 \
+    libpng16-16 \
+    # Add other runtime libraries if needed for other formats later
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the built binaries from the builder stage
