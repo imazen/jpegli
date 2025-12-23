@@ -4,6 +4,16 @@
 // license that can be found in the LICENSE file or at
 // https://developers.google.com/open-source/licenses/bsd
 
+
+
+#include <mutex>
+
+// #include "lib/jpegli/test_data_gen.h" // No longer needed here
+
+// #if ENABLE_RUST_TEST_INSTRUMENTATION // Remove mutex definition
+// std::mutex g_testdata_mutex;
+// #endif
+
 #include "lib/jpegli/common.h"
 
 #include "lib/jpegli/common_internal.h"

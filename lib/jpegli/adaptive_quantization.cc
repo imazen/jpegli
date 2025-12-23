@@ -23,6 +23,7 @@
 #include "lib/base/compiler_specific.h"
 #include "lib/base/types.h"
 #include "lib/jpegli/encode_internal.h"
+#include "lib/jpegli/test_data_gen.h"
 HWY_BEFORE_NAMESPACE();
 namespace jpegli {
 namespace HWY_NAMESPACE {
@@ -325,6 +326,20 @@ V HfModulation(const D d, const size_t x, const size_t y,
 void PerBlockModulations(const float y_quant_01, const RowBuffer<float>& input,
                          const size_t yb0, const size_t yblen,
                          RowBuffer<float>* aq_map) {
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    RustRowBufferSliceF32_Data input_y_slice;
+    RustRowBufferSliceF32_Data input_aq_slice;
+    if (IsRustTestDataEnabled()) {
+        // Capture relevant input slice (yb0*8 to yb0*8 + yblen*8)
+        ssize_t slice_y0 = yb0 * 8;
+        size_t slice_ylen = yblen * 8;
+        size_t slice_xsize = input.xsize();
+        input_y_slice = CaptureRowBufferSlice(input, 0, slice_y0, slice_ylen, -1, slice_xsize); // Assume Y channel 0
+        // Capture aq_map state *before* modulation
+        input_aq_slice = CaptureRowBufferSlice(*aq_map, 0, yb0, yblen, 0, aq_map->xsize());
+    }
+#endif
+
   static const float kAcQuant = 0.841f;
   float base_level = 0.48f * kAcQuant;
   float kDampenRampStart = 9.0f;
@@ -355,6 +370,25 @@ void PerBlockModulations(const float y_quant_01, const RowBuffer<float>& input,
       row_out[ix] = FastPow2f(GetLane(out_val) * 1.442695041f) * mul + add;
     }
   }
+
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    if (IsRustTestDataEnabled()) {
+        // Capture aq_map state *after* modulation
+        RustRowBufferSliceF32_Data output_aq_slice = CaptureRowBufferSlice(*aq_map, 0, yb0, yblen, 0, aq_map->xsize());
+
+        std::stringstream ss;
+        ss << "{";
+        ss << "\"test_type\": \"PerBlockModulationsTest\", ";
+        ss << "\"config_y_quant_01\": " << format_json_float(y_quant_01) << ", ";
+        ss << "\"config_yb0\": " << yb0 << ", ";
+        ss << "\"config_yblen\": " << yblen << ", ";
+        ss << "\"input_buffer_y_slice\": " << format_json_rowbufferslice(input_y_slice) << ", ";
+        ss << "\"input_quant_field_slice_before\": " << format_json_rowbufferslice(input_aq_slice) << ", ";
+        ss << "\"expected_quant_field_slice_after\": " << format_json_rowbufferslice(output_aq_slice);
+        ss << "}";
+        WriteTestDataJsonLine("PerBlockModulations", ss);
+    }
+#endif
 }
 
 template <typename D, typename V>
@@ -396,6 +430,18 @@ void UpdateMin4(const V v, V& min0, V& min1, V& min2, V& min3) {
 void FuzzyErosion(const RowBuffer<float>& pre_erosion, const size_t yb0,
                   const size_t yblen, RowBuffer<float>* tmp,
                   RowBuffer<float>* aq_map) {
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    RustRowBufferSliceF32_Data input_slice;
+    if (IsRustTestDataEnabled()) {
+        // Need input slice of pre_erosion with borders (y0-1 to y0+ylen/2?)
+        // Input is 2x subsampled relative to block coords
+        ssize_t slice_y0 = (yb0 * 2) - 1;
+        size_t slice_ylen = (yblen * 2) + 2;
+        size_t slice_xsize = pre_erosion.xsize(); // Use actual size
+        input_slice = CaptureRowBufferSlice(pre_erosion, 0, slice_y0, slice_ylen, -1, slice_xsize);
+    }
+#endif
+
   int xsize_blocks = aq_map->xsize();
   int xsize = pre_erosion.xsize();
   HWY_FULL(float) d;
@@ -435,64 +481,117 @@ void FuzzyErosion(const RowBuffer<float>& pre_erosion, const size_t yb0,
       }
     }
   }
+
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    if (IsRustTestDataEnabled()) {
+        // Capture output slice of aq_map
+        size_t out_ysize = yblen;
+        ssize_t out_y0 = yb0;
+        size_t out_xsize = aq_map->xsize();
+        RustRowBufferSliceF32_Data output_slice = CaptureRowBufferSlice(*aq_map, 0, out_y0, out_ysize, 0, out_xsize); // No border needed
+
+        std::stringstream ss;
+        ss << "{";
+        ss << "\"test_type\": \"FuzzyErosionTest\", ";
+        ss << "\"input_pre_erosion_slice\": " << format_json_rowbufferslice(input_slice) << ", ";
+        ss << "\"config_yb0\": " << yb0 << ", ";
+        ss << "\"config_yblen\": " << yblen << ", ";
+        ss << "\"expected_quant_field_slice\": " << format_json_rowbufferslice(output_slice);
+        ss << "}";
+        WriteTestDataJsonLine("FuzzyErosion", ss);
+    }
+#endif
 }
 
 void ComputePreErosion(const RowBuffer<float>& input, const size_t xsize,
                        const size_t y0, const size_t ylen, int border,
                        float* diff_buffer, RowBuffer<float>* pre_erosion) {
-  const size_t xsize_out = xsize / 4;
-  const size_t y0_out = y0 / 4;
-
-  // The XYB gamma is 3.0 to be able to decode faster with two muls.
-  // Butteraugli's gamma is matching the gamma of human eye, around 2.6.
-  // We approximate the gamma difference by adding one cubic root into
-  // the adaptive quantization. This gives us a total gamma of 2.6666
-  // for quantization uses.
-  static const float match_gamma_offset = 0.019 / kInputScaling;
-
-  const HWY_CAPPED(float, 8) df;
-
-  static const float limit = 0.2f;
-  // Computes image (padded to multiple of 8x8) of local pixel differences.
-  // Subsample both directions by 4.
-  for (size_t iy = 0; iy < ylen; ++iy) {
-    size_t y = y0 + iy;
-    const float* row_in = input.Row(y);
-    const float* row_in1 = input.Row(y + 1);
-    const float* row_in2 = input.Row(y - 1);
-    float* JXL_RESTRICT row_out = diff_buffer;
-    const auto match_gamma_offset_v = Set(df, match_gamma_offset);
-    const auto quarter = Set(df, 0.25f);
-    for (size_t x = 0; x < xsize; x += Lanes(df)) {
-      const auto in = LoadU(df, row_in + x);
-      const auto in_r = LoadU(df, row_in + x + 1);
-      const auto in_l = LoadU(df, row_in + x - 1);
-      const auto in_t = LoadU(df, row_in2 + x);
-      const auto in_b = LoadU(df, row_in1 + x);
-      const auto base = Mul(quarter, Add(Add(in_r, in_l), Add(in_t, in_b)));
-      const auto gammacv =
-          RatioOfDerivativesOfCubicRootToSimpleGamma</*invert=*/false>(
-              df, Add(in, match_gamma_offset_v));
-      auto diff = Mul(gammacv, Sub(in, base));
-      diff = Mul(diff, diff);
-      diff = Min(diff, Set(df, limit));
-      diff = MaskingSqrt(df, diff);
-      if ((iy & 3) != 0) {
-        diff = Add(diff, LoadU(df, row_out + x));
-      }
-      StoreU(diff, df, row_out + x);
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    RustRowBufferSliceF32_Data input_slice;
+    if (IsRustTestDataEnabled()) {
+        // Capture relevant input slice, including needed borders (y0-1 to y0+ylen+1?)
+        // Need context for the diff calculation and potential RowBuffer border access
+        ssize_t slice_y0 = y0 - border;
+        size_t slice_ylen = ylen + 2 * border;
+        input_slice = CaptureRowBufferSlice(input, 0, slice_y0, slice_ylen, -1, xsize); // Assuming Y channel (0)
     }
-    if (iy % 4 == 3) {
-      size_t y_out = y0_out + iy / 4;
-      float* row_d_out = pre_erosion->Row(y_out);
-      for (size_t x = 0; x < xsize_out; x++) {
-        row_d_out[x] = (row_out[x * 4] + row_out[x * 4 + 1] +
-                        row_out[x * 4 + 2] + row_out[x * 4 + 3]) *
-                       0.25f;
+#endif
+
+    const size_t xsize_out = xsize / 4;
+    const size_t y0_out = y0 / 4;
+
+    // The XYB gamma is 3.0 to be able to decode faster with two muls.
+    // Butteraugli's gamma is matching the gamma of human eye, around 2.6.
+    // We approximate the gamma difference by adding one cubic root into
+    // the adaptive quantization. This gives us a total gamma of 2.6666
+    // for quantization uses.
+    static const float match_gamma_offset = 0.019 / kInputScaling;
+
+    const HWY_CAPPED(float, 8) df;
+
+    static const float limit = 0.2f;
+    // Computes image (padded to multiple of 8x8) of local pixel differences.
+    // Subsample both directions by 4.
+    for (size_t iy = 0; iy < ylen; ++iy) {
+      size_t y = y0 + iy;
+      const float* row_in = input.Row(y);
+      const float* row_in1 = input.Row(y + 1);
+      const float* row_in2 = input.Row(y - 1);
+      float* JXL_RESTRICT row_out = diff_buffer;
+      const auto match_gamma_offset_v = Set(df, match_gamma_offset);
+      const auto quarter = Set(df, 0.25f);
+      for (size_t x = 0; x < xsize; x += Lanes(df)) {
+        const auto in = LoadU(df, row_in + x);
+        const auto in_r = LoadU(df, row_in + x + 1);
+        const auto in_l = LoadU(df, row_in + x - 1);
+        const auto in_t = LoadU(df, row_in2 + x);
+        const auto in_b = LoadU(df, row_in1 + x);
+        const auto base = Mul(quarter, Add(Add(in_r, in_l), Add(in_t, in_b)));
+        const auto gammacv =
+            RatioOfDerivativesOfCubicRootToSimpleGamma</*invert=*/false>(
+                df, Add(in, match_gamma_offset_v));
+        auto diff = Mul(gammacv, Sub(in, base));
+        diff = Mul(diff, diff);
+        diff = Min(diff, Set(df, limit));
+        diff = MaskingSqrt(df, diff);
+        if ((iy & 3) != 0) {
+          diff = Add(diff, LoadU(df, row_out + x));
+        }
+        StoreU(diff, df, row_out + x);
       }
-      pre_erosion->PadRow(y_out, xsize_out, border);
+      if (iy % 4 == 3) {
+        size_t y_out = y0_out + iy / 4;
+        float* row_d_out = pre_erosion->Row(y_out);
+        for (size_t x = 0; x < xsize_out; x++) {
+          row_d_out[x] = (row_out[x * 4] + row_out[x * 4 + 1] +
+                          row_out[x * 4 + 2] + row_out[x * 4 + 3]) *
+                         0.25f;
+        }
+        pre_erosion->PadRow(y_out, xsize_out, border);
+      }
     }
-  }
+
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    if (IsRustTestDataEnabled()) {
+        // Capture output slice of pre_erosion buffer
+        size_t out_ysize = ylen / 4;
+        ssize_t out_y0 = y0 / 4;
+        size_t out_xsize = xsize / 4;
+        RustRowBufferSliceF32_Data output_slice = CaptureRowBufferSlice(*pre_erosion, 0, out_y0, out_ysize, -1, out_xsize);
+
+        std::stringstream ss;
+        ss << "{";
+        ss << "\"test_type\": \"ComputePreErosionTest\", ";
+        ss << "\"input_buffer_y_slice\": " << format_json_rowbufferslice(input_slice) << ", ";
+        ss << "\"config_xsize\": " << xsize << ", ";
+        ss << "\"config_y0\": " << y0 << ", ";
+        ss << "\"config_ylen\": " << ylen << ", ";
+        ss << "\"config_border\": " << border << ", ";
+        ss << "\"expected_pre_erosion_slice\": " << format_json_rowbufferslice(output_slice);
+        ss << "}";
+        WriteTestDataJsonLine("ComputePreErosion", ss);
+    }
+#endif
 }
 
 }  // namespace
@@ -563,6 +662,44 @@ void ComputeAdaptiveQuantField(j_compress_ptr cinfo) {
       row[x] = std::max(0.0f, (0.6f / row[x]) - 1.0f);
     }
   }
+
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+    if (IsRustTestDataEnabled()) {
+        // Capture final state of quant_field slice for this iMCU row
+        RustRowBufferSliceF32_Data output_aq_slice = CaptureRowBufferSlice(m->quant_field, 0, yb0, yblen, 0, xsize_blocks);
+        // Capture necessary input config state
+        bool config_use_adaptive_quantization = m->use_adaptive_quantization;
+        int config_y_channel_index = y_channel;
+        float config_y_quant_01 = static_cast<float>(y_quant_01);
+        size_t config_next_iMCU_row = m->next_iMCU_row;
+        size_t config_total_iMCU_rows = cinfo->total_iMCU_rows;
+        int config_max_v_samp_factor = cinfo->max_v_samp_factor;
+        size_t config_y_comp_width_in_blocks = xsize_blocks;
+        size_t config_y_comp_height_in_blocks = m->ysize_blocks; // Assuming full height needed? Check context.
+
+        // Input buffer slice (capture what was relevant for this iMCU row's calculation)
+        // Need to determine the correct y range based on ComputePreErosion needs
+        ssize_t input_slice_y0 = y0 - kPreErosionBorder;
+        size_t input_slice_ylen = ylen + 2 * kPreErosionBorder;
+        RustRowBufferSliceF32_Data input_slice = CaptureRowBufferSlice(input, 0, input_slice_y0, input_slice_ylen, -1, xsize);
+
+        std::stringstream ss;
+        ss << "{";
+        ss << "\"test_type\": \"ComputeAdaptiveQuantFieldTest\", ";
+        ss << "\"config_use_adaptive_quantization\": " << format_json_bool(config_use_adaptive_quantization) << ", ";
+        ss << "\"config_y_channel_index\": " << config_y_channel_index << ", ";
+        ss << "\"config_y_quant_01\": " << format_json_float(config_y_quant_01) << ", ";
+        ss << "\"config_next_iMCU_row\": " << config_next_iMCU_row << ", ";
+        ss << "\"config_total_iMCU_rows\": " << config_total_iMCU_rows << ", ";
+        ss << "\"config_max_v_samp_factor\": " << config_max_v_samp_factor << ", ";
+        ss << "\"config_y_comp_width_in_blocks\": " << config_y_comp_width_in_blocks << ", ";
+        ss << "\"config_y_comp_height_in_blocks\": " << config_y_comp_height_in_blocks << ", ";
+        ss << "\"input_buffer_y_slice\": " << format_json_rowbufferslice(input_slice) << ", ";
+        ss << "\"expected_quant_field_slice\": " << format_json_rowbufferslice(output_aq_slice);
+        ss << "}";
+        WriteTestDataJsonLine("ComputeAdaptiveQuantField", ss);
+    }
+#endif // ENABLE_RUST_TEST_INSTRUMENTATION
 }
 
 }  // namespace jpegli
