@@ -18,6 +18,7 @@
 #include "lib/jpegli/common.h"
 #include "lib/jpegli/common_internal.h"
 #include "lib/jpegli/error.h"
+#include "lib/jpegli/test_data_gen.h"
 
 namespace jpegli {
 
@@ -231,6 +232,30 @@ void CreateHuffmanTree(const uint32_t* data, const size_t length,
       break;
     }
   }
+
+#if ENABLE_RUST_TEST_INSTRUMENTATION
+  if (IsRustTestDataEnabled()) {
+    std::stringstream ss;
+    ss << "{";
+    ss << "\"test_type\": \"CreateHuffmanTreeTest\", ";
+    ss << "\"input_length\": " << length << ", ";
+    ss << "\"tree_limit\": " << tree_limit << ", ";
+    ss << "\"input_data\": [";
+    for (size_t i = 0; i < length; ++i) {
+      if (i > 0) ss << ",";
+      ss << data[i];
+    }
+    ss << "], ";
+    ss << "\"output_depth\": [";
+    for (size_t i = 0; i < length; ++i) {
+      if (i > 0) ss << ",";
+      ss << static_cast<int>(depth[i]);
+    }
+    ss << "]";
+    ss << "}";
+    WriteTestDataJsonLine("CreateHuffmanTree", ss);
+  }
+#endif
 }
 
 void ValidateHuffmanTable(j_common_ptr cinfo, const JHUFF_TBL* table,
