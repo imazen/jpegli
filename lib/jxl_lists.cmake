@@ -111,6 +111,8 @@ set(JPEGXL_INTERNAL_EXTRAS_SOURCES
   extras/butteraugli.h
   extras/butteraugli_c.cc
   extras/butteraugli_c.h
+  extras/jpegli_test_ffi.cc
+  extras/jpegli_test_ffi.h
   extras/codestream_header.h
   extras/convolve-inl.h
   extras/convolve.h
@@ -211,6 +213,8 @@ set(JPEGXL_INTERNAL_JPEGLI_SOURCES
   extras/butteraugli.h
   extras/butteraugli_c.cc
   extras/butteraugli_c.h
+  extras/jpegli_test_ffi.cc
+  extras/jpegli_test_ffi.h
   extras/convolve.h
   extras/convolve-inl.h
   extras/convolve_separable5.cc
