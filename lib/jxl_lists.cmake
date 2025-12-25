@@ -109,6 +109,8 @@ set(JPEGXL_INTERNAL_EXTRAS_SOURCES
   extras/alpha_blend.h
   extras/butteraugli.cc
   extras/butteraugli.h
+  extras/butteraugli_c.cc
+  extras/butteraugli_c.h
   extras/codestream_header.h
   extras/convolve-inl.h
   extras/convolve.h
