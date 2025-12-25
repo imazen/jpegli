@@ -185,6 +185,9 @@ class ButteraugliComparator {
 
   Status Mask(ImageF *BUTTERAUGLI_RESTRICT mask) const;
 
+  // Accessor for testing/debugging - returns the frequency-decomposed reference image
+  const PsychoImage& GetPsychoImage() const { return pi0_; }
+
  private:
   ButteraugliComparator(size_t xsize, size_t ysize,
                         const ButteraugliParams &params);

@@ -206,6 +206,17 @@ set(JPEGXL_INTERNAL_JPEGLI_SOURCES
   jpegli/types.h
   jpegli/upsample.cc
   jpegli/upsample.h
+  # Butteraugli for quality metric testing (FFI to Rust)
+  extras/butteraugli.cc
+  extras/butteraugli.h
+  extras/butteraugli_c.cc
+  extras/butteraugli_c.h
+  extras/convolve.h
+  extras/convolve-inl.h
+  extras/convolve_separable5.cc
+  extras/convolve_slow.cc
+  extras/image.cc
+  extras/image.h
 )
 
 set(JPEGXL_INTERNAL_JPEGLI_TESTLIB_FILES

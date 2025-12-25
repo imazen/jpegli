@@ -100,9 +100,63 @@ float butteraugli_gamma(float v);
 // Compute FastLog2f (for testing)
 float butteraugli_fast_log2f(float v);
 
-// NOTE: Internal functions like OpsinDynamicsImage and SeparateFrequencies
-// use Highway SIMD namespacing and cannot be easily exposed via C API.
-// Use butteraugli_compare_full with diffmap output for detailed analysis.
+// ============================================================================
+// Step-by-step intermediate value extraction for divergence debugging
+// ============================================================================
+
+// Compute Gaussian blur (for testing blur implementation)
+// sigma: blur radius
+// out_blurred: pre-allocated width * height floats
+butteraugli_error_t butteraugli_blur(
+    const float* input,
+    size_t width,
+    size_t height,
+    float sigma,
+    float* out_blurred);
+
+// Compute frequency separation on XYB image
+// Returns LF, MF, HF (X,Y), UHF (X,Y) planes
+// All output arrays must be pre-allocated: width * height floats each
+// lf: 3 planes (X, Y, B)
+// mf: 3 planes (X, Y, B)
+// hf: 2 planes (X, Y only)
+// uhf: 2 planes (X, Y only)
+butteraugli_error_t butteraugli_separate_frequencies(
+    const float* xyb,        // width * height * 3 floats (interleaved XYB)
+    size_t width,
+    size_t height,
+    float intensity_target,
+    float* out_lf_x,
+    float* out_lf_y,
+    float* out_lf_b,
+    float* out_mf_x,
+    float* out_mf_y,
+    float* out_mf_b,
+    float* out_hf_x,
+    float* out_hf_y,
+    float* out_uhf_x,
+    float* out_uhf_y);
+
+// Compute Malta filter on a single plane (for testing)
+// use_lf: if true, use MaltaUnitLF; if false, use MaltaUnit
+butteraugli_error_t butteraugli_malta(
+    const float* input,
+    size_t width,
+    size_t height,
+    int use_lf,
+    float* out_malta);
+
+// Compute mask from combined HF/UHF channels
+// hf_x, hf_y, uhf_x, uhf_y: input frequency planes
+// out_mask: output mask (width * height floats)
+butteraugli_error_t butteraugli_compute_mask(
+    const float* hf_x,
+    const float* hf_y,
+    const float* uhf_x,
+    const float* uhf_y,
+    size_t width,
+    size_t height,
+    float* out_mask);
 
 #ifdef __cplusplus
 }
