@@ -16,6 +16,10 @@
 #include "lib/extras/butteraugli.h"
 #include "lib/extras/image.h"
 
+// NOTE: Internal butteraugli functions like OpsinDynamicsImage and SeparateFrequencies
+// use Highway SIMD namespacing which makes them difficult to call from C wrappers.
+// For now, we only expose the main comparison functions.
+
 namespace {
 
 // Default memory manager using malloc/free
@@ -381,5 +385,9 @@ butteraugli_error_t butteraugli_opsin_dynamics(
 
   return BUTTERAUGLI_OK;
 }
+
+// NOTE: butteraugli_opsin_dynamics_exact and butteraugli_separate_frequencies
+// have been removed because they require calling internal Highway-namespaced
+// functions which cannot be easily called from C wrappers.
 
 }  // extern "C"
