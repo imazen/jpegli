@@ -100,6 +100,24 @@ float butteraugli_gamma(float v);
 // Compute FastLog2f (for testing)
 float butteraugli_fast_log2f(float v);
 
+// Compute OpsinDynamicsImage output (XYB values).
+// NOTE: This uses a simplified blur approximation for testing.
+// For exact parity testing, use butteraugli_compare_full with out_diffmap.
+//
+// Parameters:
+//   linear_rgb: Linear RGB image data (width * height * 3 floats)
+//   width, height: Image dimensions
+//   intensity_target: Nits for 1.0 (default 80.0)
+//   out_xyb: Output XYB (width * height * 3 floats, pre-allocated)
+//
+// Returns BUTTERAUGLI_OK on success.
+butteraugli_error_t butteraugli_opsin_dynamics(
+    const float* linear_rgb,
+    size_t width,
+    size_t height,
+    float intensity_target,
+    float* out_xyb);
+
 #ifdef __cplusplus
 }
 #endif
