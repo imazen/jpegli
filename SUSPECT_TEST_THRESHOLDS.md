@@ -1,6 +1,95 @@
 # Suspect Test Thresholds Audit
 
-This document catalogs all Rust test expectations that appear to have loosened thresholds or are otherwise suspect. These need review and tightening.
+## Status: THRESHOLDS TIGHTENED
+
+All suspect thresholds have been corrected. The following tests now fail with strict thresholds, revealing real implementation gaps that need fixing.
+
+---
+
+## Failing Tests After Threshold Tightening
+
+### 1. `test_rust_vs_cpp_on_testdata` (aq_cpp_comparison.rs)
+
+**Error**: AQ implementation differs from C++ by 0.0843 (max allowed: 0.01)
+
+**Gap Analysis**:
+- C++ range: min=0.0000, max=0.1955, mean=0.0810
+- Rust range: min=0.0000, max=0.1222, mean=0.0653
+- Mean abs diff: 0.0157, Max abs diff: 0.0843
+
+**Root Cause**: The Rust adaptive quantization algorithm does not match C++ exactly. Known issues documented in `docs/ADAPTIVE_QUANTIZATION.md`:
+1. Edge handling differences in FuzzyErosion
+2. FastLog2f vs log2() approximation differences
+3. Border padding handling
+
+**Fix Plan**:
+1. Instrument C++ `ComputeAdaptiveQuantField` to capture intermediate values
+2. Compare Rust output stage-by-stage:
+   - `ratio_of_derivatives` → compare `pre_erosion` values
+   - `fuzzy_erosion` → compare `eroded` values
+   - `compute_mask` → compare `mask` values
+   - `per_block_modulations` → compare `aq_strength` values
+3. Fix each stage until output matches within 1e-4
+
+**Effort**: High (1-2 days of debugging)
+
+---
+
+### 2. `test_xyb_color_conversion_values` (xyb_cpp_comparison.rs)
+
+**Error**: X mismatch for (255, 0, 0): got 0.99999964, expected ~0.95 (diff: 0.049999654)
+
+**Gap Analysis**:
+- The test expects `x ≈ 0.95` for red (255,0,0) but Rust produces `x ≈ 1.0`
+- The expected values are hardcoded estimates, not from C++ instrumentation
+
+**Root Cause**: The "expected" values in the test are rough approximations, not actual C++ output.
+
+**Fix Plan**:
+1. Instrument C++ `srgb_to_xyb` to output exact X, Y, B values for test colors
+2. Update test with exact C++ values
+3. Reduce tolerance to floating-point precision (1e-6)
+
+**Effort**: Low (1-2 hours)
+
+---
+
+### 3. `test_hlg_ootf` and `test_rec2408_tone_mapper` (tone_mapping.rs - lib tests)
+
+**Error**: Internal test assertions fail in tone_mapping module
+
+**Gap Analysis**:
+- These are internal implementation tests, not parity tests
+- The tone mapping implementation may have bugs unrelated to thresholds
+
+**Fix Plan**:
+1. Review tone mapping implementation against C++ reference
+2. Fix the HLG OOTF and Rec2408 tone mapper logic
+3. These tests validate correctness, not C++ parity
+
+**Effort**: Medium (4-8 hours)
+
+---
+
+## Summary of Remediation Work
+
+| Test | Severity | Effort | Blocker? |
+|------|----------|--------|----------|
+| `test_rust_vs_cpp_on_testdata` | HIGH | 1-2 days | Yes - AQ parity |
+| `test_xyb_color_conversion_values` | MEDIUM | 1-2 hours | No - test fix |
+| `test_hlg_ootf` | LOW | 4-8 hours | No - internal |
+| `test_rec2408_tone_mapper` | LOW | 4-8 hours | No - internal |
+
+**Priority Order**:
+1. Fix `test_xyb_color_conversion_values` - Quick win, just need correct expected values
+2. Fix AQ parity - Required for encoder parity with C++
+3. Fix tone mapping tests - Internal correctness (not blocking other work)
+
+---
+
+## Original Audit (Historical Reference)
+
+This document catalogs all Rust test expectations that appeared to have loosened thresholds or were otherwise suspect. These have now been tightened.
 
 ---
 
