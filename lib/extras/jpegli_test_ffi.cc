@@ -411,4 +411,136 @@ void jpegli_gamut_map(
   }
 }
 
+// ============================================================================
+// Fast Math Functions (exact C++ implementations for parity testing)
+// ============================================================================
+
+float jpegli_fast_log2f(float x) {
+  // Exact C++ FastLog2f implementation from fast_math-inl.h
+  // 2,2 rational polynomial approximation of std::log1p(x) / std::log(2)
+  // L1 error ~3.9E-6
+  const float p0 = -1.8503833400518310E-06f;
+  const float p1 = 1.4287160470083755E+00f;
+  const float p2 = 7.4245873327820566E-01f;
+
+  const float q0 = 9.9032814277590719E-01f;
+  const float q1 = 1.0096718572241148E+00f;
+  const float q2 = 1.7409343003366853E-01f;
+
+  union { float f; int32_t i; } u;
+  u.f = x;
+  int32_t x_bits = u.i;
+
+  // Range reduction to [-1/3, 1/3]
+  int32_t exp_bits = x_bits - 0x3f2aaaab;  // 0x3f2aaaab = 2/3
+  int32_t exp_shifted = exp_bits >> 23;
+  int32_t mantissa_bits = x_bits - (exp_shifted << 23);
+  u.i = mantissa_bits;
+  float mantissa = u.f;
+  float exp_val = static_cast<float>(exp_shifted);
+
+  // Evaluate rational polynomial
+  float m = mantissa - 1.0f;
+  float yp = p2 * m + p1;
+  yp = yp * m + p0;
+  float yq = q2 * m + q1;
+  yq = yq * m + q0;
+
+  return yp / yq + exp_val;
+}
+
+float jpegli_fast_pow2f(float x) {
+  // Exact C++ FastPow2f implementation from fast_math-inl.h
+  // max relative error ~3e-7
+  union { float f; int32_t i; } u;
+
+  float floorx = std::floor(x);
+  int32_t exp_int = static_cast<int32_t>(floorx) + 127;
+  u.i = exp_int << 23;
+  float exp = u.f;
+
+  float frac = x - floorx;
+
+  // Numerator polynomial
+  float num = frac + 1.01749063e+01f;
+  num = num * frac + 4.88687798e+01f;
+  num = num * frac + 9.85506591e+01f;
+  num = num * exp;
+
+  // Denominator polynomial
+  float den = frac * 2.10242958e-01f + (-2.22328856e-02f);
+  den = den * frac + (-1.94414990e+01f);
+  den = den * frac + 9.85506633e+01f;
+
+  return num / den;
+}
+
+float jpegli_fast_powf(float base, float exponent) {
+  return jpegli_fast_pow2f(jpegli_fast_log2f(base) * exponent);
+}
+
+float jpegli_compute_mask(float out_val) {
+  // From adaptive_quantization.cc ComputeMask
+  // Perceptual masking curve
+  //
+  // Constants from adaptive_quantization.cc:
+  const float kBase = -0.74174993f;
+  const float kMul4 = 3.2353257320940401f;
+  const float kMul2 = 12.906028311180409f;
+  const float kMul3 = 5.0220313103171232f;
+  const float kOffset2 = 305.04035728311436f;
+  const float kOffset3 = 2.1925739705298404f;
+  const float kOffset4 = 0.25f * kOffset3;  // = 0.548143...
+  const float kMul0 = 0.74760422233706747f;
+
+  float v1 = std::max(out_val * kMul0, 1e-3f);
+  float v2 = 1.0f / (v1 + kOffset2);
+  float v3 = 1.0f / (v1 * v1 + kOffset3);
+  float v4 = 1.0f / (v1 * v1 + kOffset4);
+
+  return kBase + kMul4 * v4 + kMul2 * v2 + kMul3 * v3;
+}
+
+float jpegli_masking_sqrt(float v) {
+  // From adaptive_quantization.cc MaskingSqrt
+  // Formula: 0.25 * sqrt(v * sqrt(kMul * 1e8) + kLogOffset)
+  const float kLogOffset = 28.0f;
+  const float kMul = 211.50759899638012f;
+  const float kMulSqrt = std::sqrt(kMul * 1e8f);  // sqrt(211.5e8) ≈ 145454
+
+  return 0.25f * std::sqrt(v * kMulSqrt + kLogOffset);
+}
+
+float jpegli_ratio_of_derivatives(float v, int invert) {
+  // From adaptive_quantization.cc RatioOfDerivativesOfCubicRootToSimpleGamma
+  // This is a RATIONAL POLYNOMIAL, not pow(v, 226)!
+  //
+  // Constants from adaptive_quantization.cc:
+  constexpr float kInputScaling = 1.0f / 255.0f;
+  constexpr float kSGmul = 226.0480446705883f;
+  constexpr float kSGmul2 = 1.0f / 73.377132366608819f;
+  constexpr float kInvLog2e = 0.6931471805599453f;
+  constexpr float kSGRetMul = kSGmul2 * 18.6580932135f * kInvLog2e;
+  constexpr float kSGVOffset = 7.14672470003f;
+
+  constexpr float kEpsilon = 1e-2f;
+  constexpr float kNumOffset = kEpsilon / kInputScaling / kInputScaling;
+  constexpr float kNumMul = kSGRetMul * 3.0f * kSGmul;
+  constexpr float kVOffset = (kSGVOffset * kInvLog2e + kEpsilon) / kInputScaling;
+  constexpr float kDenMul = kInvLog2e * kSGmul * kInputScaling * kInputScaling;
+
+  // v should already be >= 0 (ZeroIfNegative in C++)
+  v = std::max(0.0f, v);
+
+  float v2 = v * v;
+  float num = kNumMul * v2 + kNumOffset;
+  float den = kDenMul * v * v2 + kVOffset;
+
+  if (invert) {
+    return num / den;
+  } else {
+    return den / num;
+  }
+}
+
 }  // extern "C"

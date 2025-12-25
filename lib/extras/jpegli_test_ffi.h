@@ -115,6 +115,30 @@ void jpegli_gamut_map(
     const float* luminances,  // 3 floats
     float* rgb);              // 3 floats, modified in place
 
+// ============================================================================
+// Fast Math Functions (for AQ parity testing)
+// ============================================================================
+
+// Fast log2 approximation (L1 error ~3.9E-6)
+// Uses bit manipulation + rational polynomial, NOT std::log2
+float jpegli_fast_log2f(float x);
+
+// Fast pow2 approximation (max relative error ~3e-7)
+// Uses bit manipulation + rational polynomial, NOT std::exp2
+float jpegli_fast_pow2f(float x);
+
+// Fast power: base^exponent using fast_log2f * fast_pow2f
+float jpegli_fast_powf(float base, float exponent);
+
+// ComputeMask from adaptive_quantization.cc - perceptual masking curve
+float jpegli_compute_mask(float out_val);
+
+// MaskingSqrt from adaptive_quantization.cc
+float jpegli_masking_sqrt(float v);
+
+// RatioOfDerivativesOfCubicRootToSimpleGamma
+float jpegli_ratio_of_derivatives(float v, int invert);
+
 #ifdef __cplusplus
 }
 #endif
