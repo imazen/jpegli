@@ -55,7 +55,7 @@ libloading = "0.8"
 butteraugli-oxide = { path = "butteraugli" }
 
 # SIMD dispatch
-multiversion = "0.7"
+multiversion = "0.8"
 
 [workspace.lints.rust]
 unsafe_code = "warn"
