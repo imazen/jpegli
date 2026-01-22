@@ -139,6 +139,15 @@ float jpegli_masking_sqrt(float v);
 // RatioOfDerivativesOfCubicRootToSimpleGamma
 float jpegli_ratio_of_derivatives(float v, int invert);
 
+// ============================================================================
+// DCT Functions (for coefficient parity testing)
+// ============================================================================
+
+// Forward 8x8 DCT (scalar reference implementation)
+// Input: 64 floats (row-major), level-shifted (pixels - 128)
+// Output: 64 floats (row-major DCT coefficients), scaled by 1/8
+void jpegli_forward_dct_8x8(const float* input, float* output);
+
 #ifdef __cplusplus
 }
 #endif

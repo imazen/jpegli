@@ -543,4 +543,152 @@ float jpegli_ratio_of_derivatives(float v, int invert) {
   }
 }
 
+// ============================================================================
+// DCT Functions (scalar reference for parity testing)
+// ============================================================================
+
+// WC multipliers for DCT (from dct-inl.h)
+static const float kWC4[2] = {
+    0.541196100146197f,
+    1.3065629648763764f,
+};
+
+static const float kWC8[4] = {
+    0.5097955791041592f,
+    0.6013448869350453f,
+    0.8999762231364156f,
+    2.5629154477415055f,
+};
+
+static const float kSqrt2 = 1.41421356237f;
+
+// 1D DCT for N=8 (fully unrolled, matches dct-inl.h algorithm)
+static void DCT1D_N8(const float* in, float* out) {
+  // AddReverse<4>: tmp[0:4] = in[0:4] + reverse(in[4:8])
+  float a0 = in[0] + in[7];
+  float a1 = in[1] + in[6];
+  float a2 = in[2] + in[5];
+  float a3 = in[3] + in[4];
+
+  // SubReverse<4>: tmp[4:8] = in[0:4] - reverse(in[4:8])
+  float s0 = in[0] - in[7];
+  float s1 = in[1] - in[6];
+  float s2 = in[2] - in[5];
+  float s3 = in[3] - in[4];
+
+  // DCT1D<4> on first half [a0, a1, a2, a3]
+  // AddReverse<2>
+  float b0 = a0 + a3;
+  float b1 = a1 + a2;
+  // SubReverse<2>
+  float b2 = a0 - a3;
+  float b3 = a1 - a2;
+
+  // DCT1D<2> on [b0, b1]
+  float c0 = b0 + b1;  // first[0]
+  float c1 = b0 - b1;  // first[1]
+
+  // Multiply by WC4 and DCT1D<2>
+  float d0 = b2 * kWC4[0];
+  float d1 = b3 * kWC4[1];
+  float e0 = d0 + d1;
+  float e1 = d0 - d1;
+
+  // B<2>: e0 = e0 * sqrt2 + e1
+  float f0 = e0 * kSqrt2 + e1;
+  float f1 = e1;
+
+  // first half result: [c0, f0, c1, f1] after InverseEvenOdd<4>
+
+  // Now process second half [s0, s1, s2, s3] * WC8
+  s0 *= kWC8[0];
+  s1 *= kWC8[1];
+  s2 *= kWC8[2];
+  s3 *= kWC8[3];
+
+  // DCT1D<4> on [s0, s1, s2, s3]
+  // AddReverse<2>
+  float g0 = s0 + s3;
+  float g1 = s1 + s2;
+  // SubReverse<2>
+  float g2 = s0 - s3;
+  float g3 = s1 - s2;
+
+  // DCT1D<2> on [g0, g1]
+  float h0 = g0 + g1;  // second[0]
+  float h1 = g0 - g1;  // second[1]
+
+  // Multiply by WC4 and DCT1D<2>
+  float i0 = g2 * kWC4[0];
+  float i1 = g3 * kWC4[1];
+  float j0 = i0 + i1;
+  float j1 = i0 - i1;
+
+  // B<2>
+  float k0 = j0 * kSqrt2 + j1;
+  float k1 = j1;
+
+  // second[]: after InverseEvenOdd<4> = [h0, k0, h1, k1]
+
+  // B<4>: cumulative transform on second[]
+  float sec0 = h0 * kSqrt2 + k0;  // second[0] * sqrt2 + second[1]
+  float sec1 = k0 + h1;           // second[1] + second[2]
+  float sec2 = h1 + k1;           // second[2] + second[3]
+  float sec3 = k1;                // second[3] unchanged
+
+  // InverseEvenOdd<8>: interleave first[] and second[]
+  // first[] = [c0, f0, c1, f1]
+  // second[] = [sec0, sec1, sec2, sec3]
+  out[0] = c0;    // first[0]
+  out[1] = sec0;  // second[0]
+  out[2] = f0;    // first[1]
+  out[3] = sec1;  // second[1]
+  out[4] = c1;    // first[2]
+  out[5] = sec2;  // second[2]
+  out[6] = f1;    // first[3]
+  out[7] = sec3;  // second[3]
+}
+
+// Transpose 8x8 matrix in place
+static void Transpose8x8(float* m) {
+  for (int i = 0; i < 8; ++i) {
+    for (int j = i + 1; j < 8; ++j) {
+      std::swap(m[i * 8 + j], m[j * 8 + i]);
+    }
+  }
+}
+
+void jpegli_forward_dct_8x8(const float* input, float* output) {
+  // Step 1: Copy input to workspace
+  float workspace[64];
+  std::memcpy(workspace, input, 64 * sizeof(float));
+
+  // Step 2: Row DCT (8 rows) with 1/8 scaling (matching dct-inl.h StoreToBlockAndScale)
+  const float scale = 1.0f / 8.0f;
+  float row_tmp[8];
+  for (int row = 0; row < 8; ++row) {
+    DCT1D_N8(&workspace[row * 8], row_tmp);
+    for (int i = 0; i < 8; ++i) {
+      workspace[row * 8 + i] = row_tmp[i] * scale;
+    }
+  }
+
+  // Step 3: Transpose
+  Transpose8x8(workspace);
+
+  // Step 4: Column DCT (now rows after transpose) with 1/8 scaling
+  for (int row = 0; row < 8; ++row) {
+    DCT1D_N8(&workspace[row * 8], row_tmp);
+    for (int i = 0; i < 8; ++i) {
+      workspace[row * 8 + i] = row_tmp[i] * scale;
+    }
+  }
+
+  // Step 5: Transpose back
+  Transpose8x8(workspace);
+
+  // Step 6: Copy to output (scaling already applied twice: 1/8 * 1/8 = 1/64)
+  std::memcpy(output, workspace, 64 * sizeof(float));
+}
+
 }  // extern "C"

@@ -663,6 +663,26 @@ void ComputeAdaptiveQuantField(j_compress_ptr cinfo) {
     }
   }
 
+  // Debug: dump final AQ map to binary file
+  if (m->next_iMCU_row + 1 == cinfo->total_iMCU_rows && getenv("DUMP_AQ_MAP")) {
+    const char* path = getenv("DUMP_AQ_MAP");
+    FILE* f = fopen(path, "wb");
+    if (f) {
+      // Write header: width_blocks, height_blocks as uint32
+      uint32_t w = static_cast<uint32_t>(xsize_blocks);
+      uint32_t h = static_cast<uint32_t>(m->ysize_blocks);
+      fwrite(&w, sizeof(uint32_t), 1, f);
+      fwrite(&h, sizeof(uint32_t), 1, f);
+      // Write all rows
+      for (size_t row_y = 0; row_y < m->ysize_blocks; ++row_y) {
+        const float* row = m->quant_field.Row(row_y);
+        fwrite(row, sizeof(float), xsize_blocks, f);
+      }
+      fclose(f);
+      fprintf(stderr, "AQ map dumped to %s (%ux%u blocks)\n", path, w, h);
+    }
+  }
+
 #if ENABLE_RUST_TEST_INSTRUMENTATION
     if (IsRustTestDataEnabled()) {
         // Capture final state of quant_field slice for this iMCU row
