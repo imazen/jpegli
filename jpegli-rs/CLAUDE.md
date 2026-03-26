@@ -490,7 +490,7 @@ C++ modifications for instrumentation will be maintained independently.
 |--------|-------|-------------|-------|---------|
 | DSSIM | `dssim` | Structural dissimilarity | 0 = identical, lower = better | **Primary metric** |
 | SSIMULACRA2 | `ssimulacra2` | Perceptual quality | 100 = identical, higher = better | Secondary metric |
-| Butteraugli | `jpegli::butteraugli` | Psychovisual distance | < 1.0 = good, > 2.0 = bad | XYB mode validation |
+| Butteraugli | `zenjpeg::butteraugli` | Psychovisual distance | < 1.0 = good, > 2.0 = bad | XYB mode validation |
 
 ### Using Metrics in Tests
 

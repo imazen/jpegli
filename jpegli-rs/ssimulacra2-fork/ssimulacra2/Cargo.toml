@@ -1,7 +1,7 @@
 [package]
 name = "ssimulacra2"
 version = "0.5.1"
-edition = "2021"
+edition = "2024"
 description = "Rust implementation of the SSIMULACRA2 metric"
 repository = "https://github.com/rust-av/ssimulacra2"
 homepage = "https://github.com/rust-av/ssimulacra2"
