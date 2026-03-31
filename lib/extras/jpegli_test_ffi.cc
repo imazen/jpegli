@@ -19,6 +19,23 @@
 
 namespace {
 
+// Cross-platform aligned allocation (MSVC lacks std::aligned_alloc)
+inline void* aligned_alloc_xplat(size_t alignment, size_t size) {
+#if defined(_MSC_VER)
+  return _aligned_malloc(size, alignment);
+#else
+  return aligned_alloc_xplat(alignment, size);
+#endif
+}
+
+inline void aligned_free_xplat(void* ptr) {
+#if defined(_MSC_VER)
+  _aligned_free(ptr);
+#else
+  aligned_free_xplat(ptr);
+#endif
+}
+
 // sRGB EOTF (gamma decoding)
 float SrgbToLinear(float srgb) {
   if (srgb <= 0.04045f) {
@@ -79,7 +96,7 @@ void jpegli_linear_to_xyb(
   // Use aligned allocation for SIMD
   constexpr size_t kAlign = 64;  // AVX-512 alignment
   float* premul_absorb = static_cast<float*>(
-      std::aligned_alloc(kAlign, 12 * kMaxLanes * sizeof(float)));
+      aligned_alloc_xplat(kAlign, 12 * kMaxLanes * sizeof(float)));
   std::memset(premul_absorb, 0, 12 * kMaxLanes * sizeof(float));
   jxl::ComputePremulAbsorb(intensity_target, premul_absorb);
 
@@ -91,11 +108,11 @@ void jpegli_linear_to_xyb(
 
   // Process each row with aligned memory
   float* row_r = static_cast<float*>(
-      std::aligned_alloc(kAlign, padded_width * sizeof(float)));
+      aligned_alloc_xplat(kAlign, padded_width * sizeof(float)));
   float* row_g = static_cast<float*>(
-      std::aligned_alloc(kAlign, padded_width * sizeof(float)));
+      aligned_alloc_xplat(kAlign, padded_width * sizeof(float)));
   float* row_b = static_cast<float*>(
-      std::aligned_alloc(kAlign, padded_width * sizeof(float)));
+      aligned_alloc_xplat(kAlign, padded_width * sizeof(float)));
   std::memset(row_r, 0, padded_width * sizeof(float));
   std::memset(row_g, 0, padded_width * sizeof(float));
   std::memset(row_b, 0, padded_width * sizeof(float));
@@ -127,10 +144,10 @@ void jpegli_linear_to_xyb(
     }
   }
 
-  std::free(row_r);
-  std::free(row_g);
-  std::free(row_b);
-  std::free(premul_absorb);
+  aligned_free_xplat(row_r);
+  aligned_free_xplat(row_g);
+  aligned_free_xplat(row_b);
+  aligned_free_xplat(premul_absorb);
 }
 
 void jpegli_scale_xyb(
@@ -145,11 +162,11 @@ void jpegli_scale_xyb(
 
   // Need planar format for ScaleXYBRow with aligned memory
   float* row_x = static_cast<float*>(
-      std::aligned_alloc(kAlign, padded_width * sizeof(float)));
+      aligned_alloc_xplat(kAlign, padded_width * sizeof(float)));
   float* row_y = static_cast<float*>(
-      std::aligned_alloc(kAlign, padded_width * sizeof(float)));
+      aligned_alloc_xplat(kAlign, padded_width * sizeof(float)));
   float* row_b = static_cast<float*>(
-      std::aligned_alloc(kAlign, padded_width * sizeof(float)));
+      aligned_alloc_xplat(kAlign, padded_width * sizeof(float)));
   std::memset(row_x, 0, padded_width * sizeof(float));
   std::memset(row_y, 0, padded_width * sizeof(float));
   std::memset(row_b, 0, padded_width * sizeof(float));
@@ -181,9 +198,9 @@ void jpegli_scale_xyb(
     }
   }
 
-  std::free(row_x);
-  std::free(row_y);
-  std::free(row_b);
+  aligned_free_xplat(row_x);
+  aligned_free_xplat(row_y);
+  aligned_free_xplat(row_b);
 }
 
 void jpegli_srgb_to_scaled_xyb(
