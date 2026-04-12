@@ -24,7 +24,7 @@ inline void* aligned_alloc_xplat(size_t alignment, size_t size) {
 #if defined(_MSC_VER)
   return _aligned_malloc(size, alignment);
 #else
-  return aligned_alloc_xplat(alignment, size);
+  return std::aligned_alloc(alignment, size);
 #endif
 }
 
@@ -32,7 +32,7 @@ inline void aligned_free_xplat(void* ptr) {
 #if defined(_MSC_VER)
   _aligned_free(ptr);
 #else
-  aligned_free_xplat(ptr);
+  std::free(ptr);
 #endif
 }
 
